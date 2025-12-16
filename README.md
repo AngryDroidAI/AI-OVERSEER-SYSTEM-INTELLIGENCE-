@@ -215,7 +215,7 @@ Ask:
 
     “Generate a crash report” (if we add the endpoint)
 
-    <!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -581,6 +581,10 @@ Ask:
       color: var(--accent-magenta);
     }
 
+    .console-entry.user {
+      color: var(--accent-green);
+    }
+
     .console-timestamp {
       color: var(--muted);
       margin-right: 6px;
@@ -895,6 +899,46 @@ Ask:
         overflow: auto;
       }
     }
+
+    /* New styles for enhanced features */
+    .hidden {
+      display: none;
+    }
+
+    .feedback-form {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .feedback-input {
+      flex: 1;
+      border-radius: 6px;
+      border: 1px solid rgba(88, 189, 255, 0.6);
+      background: rgba(14, 36, 82, 0.5);
+      padding: 4px 8px;
+      color: var(--text-primary);
+      font-size: 0.7rem;
+    }
+
+    .vision-upload {
+      margin-top: 6px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .file-input {
+      flex: 1;
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+    }
+
+    .job-status {
+      font-size: 0.7rem;
+      color: var(--accent-yellow);
+      margin-top: 4px;
+    }
   </style>
 </head>
 <body>
@@ -968,6 +1012,19 @@ Ask:
           />
           <button class="btn" id="sendButton">Send</button>
         </div>
+        <!-- Feedback form (initially hidden) -->
+        <div class="feedback-form hidden" id="feedbackForm">
+          <input type="number" class="feedback-input" id="feedbackRating" placeholder="Rating (1-5)" min="1" max="5" style="width: 80px;" />
+          <input type="text" class="feedback-input" id="feedbackComment" placeholder="Comment (optional)" />
+          <button class="btn secondary" id="submitFeedbackBtn">Submit</button>
+          <button class="btn secondary" id="cancelFeedbackBtn">Cancel</button>
+        </div>
+        <!-- Vision upload (initially hidden) -->
+        <div class="vision-upload hidden" id="visionUpload">
+          <input type="file" class="file-input" id="visionFile" accept="image/*" />
+          <input type="text" class="console-input" id="visionPrompt" placeholder="Describe the image..." style="flex: 1;" />
+          <button class="btn" id="processVisionBtn">Process</button>
+        </div>
       </div>
     </section>
 
@@ -995,42 +1052,32 @@ Ask:
           <div class="subpanel">
             <div class="subpanel-header">
               <span class="label">System monitor</span>
-              <span class="hint">heartbeat from backend</span>
+              <span class="hint">cluster nodes status</span>
             </div>
             <div class="subpanel-body">
-              <div class="system-stats-grid">
+              <div class="system-stats-grid" id="systemStats">
                 <div class="system-stat">
-                  <div class="system-stat-label">CPU</div>
-                  <div class="system-stat-value" id="cpuUsage">–</div>
+                  <div class="system-stat-label">Nodes</div>
+                  <div class="system-stat-value" id="nodeCount">–</div>
                 </div>
                 <div class="system-stat">
-                  <div class="system-stat-label">Memory</div>
-                  <div class="system-stat-value" id="memoryUsage">–</div>
-                </div>
-                <div class="system-stat">
-                  <div class="system-stat-label">GPU</div>
-                  <div class="system-stat-value" id="gpuUsage">–</div>
-                </div>
-                <div class="system-stat">
-                  <div class="system-stat-label">Disk</div>
-                  <div class="system-stat-value" id="diskUsage">–</div>
-                </div>
-                <div class="system-stat">
-                  <div class="system-stat-label">Network</div>
-                  <div class="system-stat-value" id="netUsage">–</div>
+                  <div class="system-stat-label">Online</div>
+                  <div class="system-stat-value" id="onlineCount">–</div>
                 </div>
                 <div class="system-stat">
                   <div class="system-stat-label">Status</div>
                   <div class="system-stat-value" id="systemStatus">Awaiting health check…</div>
                 </div>
               </div>
+              <!-- Node details -->
+              <div id="nodeDetails" style="margin-top: 8px; font-size: 0.7rem;"></div>
             </div>
           </div>
 
           <div class="subpanel">
             <div class="subpanel-header">
               <span class="label">Capsule ecosystem</span>
-              <span class="hint">shrines · tools · agents</span>
+              <span class="hint">services · agents · models</span>
             </div>
             <div class="subpanel-body">
               <div class="ecosystem-grid" id="ecosystemGrid">
@@ -1059,6 +1106,14 @@ Ask:
                   <div class="ecosystem-status">Remote hosts · offline</div>
                 </div>
               </div>
+              <!-- Running models -->
+              <div style="margin-top: 8px;">
+                <div class="subpanel-header">
+                  <span class="label">Running Models</span>
+                  <span class="hint">active Ollama models</span>
+                </div>
+                <div id="runningModels" style="font-size: 0.7rem; color: var(--text-secondary);"></div>
+              </div>
             </div>
           </div>
 
@@ -1082,6 +1137,14 @@ Ask:
             <div class="subpanel-body">
               <div class="memory-list" id="memoryView">
                 No memory loaded yet. Send a message to start a session and then pull memory.
+              </div>
+              <!-- Reinforcement scores -->
+              <div style="margin-top: 8px;">
+                <div class="subpanel-header">
+                  <span class="label">Reinforcement Scores</span>
+                  <span class="hint">model performance</span>
+                </div>
+                <div id="reinforceScores" style="font-size: 0.7rem; color: var(--text-secondary);"></div>
               </div>
             </div>
           </div>
@@ -1150,6 +1213,10 @@ Ask:
       <button class="btn secondary" id="cleanupBtn">Cleanup uploads</button>
       <button class="btn secondary" id="modelsBtn">List models</button>
       <button class="btn secondary" id="pullMemoryBtn">Pull memory</button>
+      <button class="btn secondary" id="clusterHealthBtn">Cluster health</button>
+      <button class="btn secondary" id="feedbackBtn">Feedback</button>
+      <button class="btn secondary" id="visionBtn">Vision</button>
+      <button class="btn secondary" id="fineTuneBtn">Fine-tune</button>
     </div>
     <div class="bottom-right">
       <span class="hint">Overseer backend at http://localhost:3042 · SQLite on external 2TB volume</span>
@@ -1162,9 +1229,11 @@ Ask:
 
   // Default active model
   let activeModel = "ishumilin/deepseek-r1-coder-tools:14b";
+  let currentMessageId = null;
 
   // Full model list (local + cloud + GGUF + experimental)
   const FALLBACK_MODELS = [
+    "devstral-small-2:24b",
     "mistral-large-3:675b-cloud",
     "deepseek-v3.2:cloud",
     "qwen3-next:80b-cloud",
@@ -1261,11 +1330,68 @@ Ask:
     "Overseer dashboard online. Backend expected at " + BACKEND_URL + "."
   );
 
+  // Command registry for console
+  const commands = {
+    help: () => {
+      appendConsoleEntry("system", "Available commands: /help, /models, /running, /memory, /feedback, /vision, /cluster, /reinforce, /finetune, /search <query>, /cleanup, /uptime");
+    },
+    models: async () => {
+      await listModels();
+    },
+    running: async () => {
+      await listRunningModels();
+    },
+    memory: async () => {
+      await pullMemory();
+    },
+    feedback: () => {
+      showFeedbackForm();
+    },
+    vision: () => {
+      showVisionUpload();
+    },
+    cluster: async () => {
+      await checkClusterHealth();
+    },
+    reinforce: async () => {
+      await fetchReinforcementScores();
+    },
+    finetune: async () => {
+      await submitFineTuneJob();
+    },
+    cleanup: async () => {
+      await cleanupUploads();
+    },
+    uptime: () => {
+      appendConsoleEntry("system", "Dashboard uptime: " + formatDuration(Date.now() - appStartTime));
+    },
+    search: async (args) => {
+      if (!args) {
+        appendConsoleEntry("system", "Usage: /search <query>");
+        return;
+      }
+      await performSearch(args);
+    }
+  };
+
   async function sendToOverseer() {
     const text = consoleInput.value.trim();
     if (!text) return;
+
+    // Check if it's a command
+    if (text.startsWith('/')) {
+      const [cmd, ...args] = text.slice(1).split(' ');
+      const commandFn = commands[cmd];
+      if (commandFn) {
+        commandFn(args.join(' '));
+        consoleInput.value = "";
+        return;
+      }
+    }
+
     appendConsoleEntry("user", text);
     consoleInput.value = "";
+    currentMessageId = Date.now().toString();
 
     try {
       const resp = await fetch(BACKEND_URL + "/api/chat", {
@@ -1317,7 +1443,7 @@ Ask:
         heartbeatIndicator.classList.remove("offline");
         heartbeatIndicator.querySelector(".heartbeat-label").textContent = "online";
         backendStatus.textContent = "Healthy";
-        systemStatus.textContent = "Backend responding";
+        systemStatus.textContent = "All systems nominal";
       } else {
         heartbeatIndicator.classList.add("offline");
         heartbeatIndicator.querySelector(".heartbeat-label").textContent = "degraded";
@@ -1335,8 +1461,11 @@ Ask:
   setInterval(pingBackend, 5000);
   pingBackend();
 
+  // Model management
   const modelsBtn = document.getElementById("modelsBtn");
-  modelsBtn.addEventListener("click", async () => {
+  modelsBtn.addEventListener("click", () => listModels());
+
+  async function listModels() {
     try {
       const resp = await fetch(BACKEND_URL + "/api/models");
       if (!resp.ok) throw new Error("status " + resp.status);
@@ -1346,7 +1475,20 @@ Ask:
     } catch (err) {
       appendConsoleEntry("system", "Error fetching models: " + err.message);
     }
-  });
+  }
+
+  async function listRunningModels() {
+    try {
+      const resp = await fetch(BACKEND_URL + "/api/models/running");
+      if (!resp.ok) throw new Error("status " + resp.status);
+      const data = await resp.json();
+      const names = (data || []).map((m) => m.name || m.model).join(", ") || "No models running.";
+      appendConsoleEntry("system", "Running models: " + names);
+      document.getElementById("runningModels").textContent = names;
+    } catch (err) {
+      appendConsoleEntry("system", "Error fetching running models: " + err.message);
+    }
+  }
 
   const modelSelector = document.getElementById("modelSelector");
 
@@ -1384,8 +1526,11 @@ Ask:
 
   loadModelsIntoSelector();
 
+  // Cleanup
   const cleanupBtn = document.getElementById("cleanupBtn");
-  cleanupBtn.addEventListener("click", async () => {
+  cleanupBtn.addEventListener("click", () => cleanupUploads());
+
+  async function cleanupUploads() {
     try {
       const resp = await fetch(BACKEND_URL + "/api/cleanup");
       if (!resp.ok) throw new Error("status " + resp.status);
@@ -1394,12 +1539,15 @@ Ask:
     } catch (err) {
       appendConsoleEntry("system", "Cleanup error: " + err.message);
     }
-  });
+  }
 
+  // Memory management
   const pullMemoryBtn = document.getElementById("pullMemoryBtn");
   const memoryView = document.getElementById("memoryView");
 
-  pullMemoryBtn.addEventListener("click", async () => {
+  pullMemoryBtn.addEventListener("click", () => pullMemory());
+
+  async function pullMemory() {
     try {
       const url =
         BACKEND_URL +
@@ -1418,81 +1566,398 @@ Ask:
     } catch (err) {
       memoryView.textContent = "Memory error: " + err.message;
     }
-  });
+  }
 
+  // Daemon management
   const daemonStatus = document.getElementById("daemonStatus");
   const daemonLastHeartbeat = document.getElementById("daemonLastHeartbeat");
   const daemonLastSync = document.getElementById("daemonLastSync");
   const daemonNextTask = document.getElementById("daemonNextTask");
-
   const refreshDaemonBtn = document.getElementById("refreshDaemonBtn");
   const restartDaemonBtn = document.getElementById("restartDaemonBtn");
 
-  refreshDaemonBtn.addEventListener("click", () => {
-    daemonStatus.textContent = "Unknown (no daemon endpoint yet)";
-    daemonLastHeartbeat.textContent = new Date().toLocaleTimeString();
-    daemonLastSync.textContent = "–";
-    daemonNextTask.textContent = "Define via daemon JSON/endpoint.";
-    appendConsoleEntry(
-      "system",
-      "Daemon refresh invoked. Wire this to your actual daemon status source when ready."
-    );
+  refreshDaemonBtn.addEventListener("click", async () => {
+    try {
+      // Try to get daemon status from cluster nodes
+      const resp = await fetch(BACKEND_URL + "/api/cluster/health");
+      if (!resp.ok) throw new Error("status " + resp.status);
+      const data = await resp.json();
+      
+      let onlineNodes = 0;
+      Object.values(data).forEach(node => {
+        if (node.status === "online") onlineNodes++;
+      });
+      
+      daemonStatus.textContent = `${onlineNodes}/${Object.keys(data).length} nodes online`;
+      daemonLastHeartbeat.textContent = new Date().toLocaleTimeString();
+      daemonLastSync.textContent = "Just now";
+      daemonNextTask.textContent = "Monitor cluster health";
+      
+      appendConsoleEntry("system", `Daemon refresh: ${onlineNodes} nodes online`);
+    } catch (err) {
+      daemonStatus.textContent = "Error";
+      appendConsoleEntry("system", "Daemon refresh error: " + err.message);
+    }
   });
 
-  restartDaemonBtn.addEventListener("click", () => {
-    appendConsoleEntry(
-      "system",
-      "Restart daemon requested. Wire this button to /api/ssh or your daemon controller."
-    );
+  restartDaemonBtn.addEventListener("click", async () => {
+    try {
+      // Restart Ollama service on cluster nodes
+      appendConsoleEntry("system", "Restarting Ollama on cluster nodes...");
+      
+      const nodes = ['mythic', 'skybox'];
+      for (const node of nodes) {
+        try {
+          const resp = await fetch(BACKEND_URL + "/api/cluster/exec", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              node: node,
+              command: "systemctl restart ollama"
+            })
+          });
+          
+          if (resp.ok) {
+            const data = await resp.json();
+            appendConsoleEntry("system", `${node}: ${data.output}`);
+          }
+        } catch (err) {
+          appendConsoleEntry("system", `${node}: Failed to restart - ${err.message}`);
+        }
+      }
+    } catch (err) {
+      appendConsoleEntry("system", "Restart error: " + err.message);
+    }
   });
 
+  // Sync management
   const lastDeploy = document.getElementById("lastDeploy");
   const filesChanged = document.getElementById("filesChanged");
   const indexState = document.getElementById("indexState");
-
   const syncNowBtn = document.getElementById("syncNowBtn");
   const rebuildIndexBtn = document.getElementById("rebuildIndexBtn");
 
-  syncNowBtn.addEventListener("click", () => {
-    lastDeploy.textContent = new Date().toLocaleTimeString();
-    filesChanged.textContent = "Unknown (no sync endpoint yet)";
-    indexState.textContent = "Pending";
-    appendConsoleEntry(
-      "system",
-      "Constellation sync requested. Wire this to your Neocities sync script."
-    );
+  syncNowBtn.addEventListener("click", async () => {
+    try {
+      // Sync to Neocities via cluster exec
+      appendConsoleEntry("system", "Syncing to Neocities...");
+      
+      const resp = await fetch(BACKEND_URL + "/api/cluster/exec", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          node: "mythic",
+          command: "cd /home/angrydroid/neocities && ./deploy.sh"
+        })
+      });
+      
+      if (!resp.ok) throw new Error("status " + resp.status);
+      const data = await resp.json();
+      
+      lastDeploy.textContent = new Date().toLocaleTimeString();
+      filesChanged.textContent = "Sync completed";
+      indexState.textContent = "Synced";
+      appendConsoleEntry("system", "Sync result: " + data.output);
+    } catch (err) {
+      appendConsoleEntry("system", "Sync error: " + err.message);
+    }
   });
 
-  rebuildIndexBtn.addEventListener("click", () => {
-    indexState.textContent = "Rebuild requested (manual wiring required)";
-    appendConsoleEntry(
-      "system",
-      "Index rebuild requested. Wire this to your index generation script."
-    );
+  rebuildIndexBtn.addEventListener("click", async () => {
+    try {
+      appendConsoleEntry("system", "Rebuilding indexes...");
+      
+      const resp = await fetch(BACKEND_URL + "/api/cluster/exec", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          node: "mythic",
+          command: "cd /home/angrydroid/neocities && python3 rebuild_index.py"
+        })
+      });
+      
+      if (!resp.ok) throw new Error("status " + resp.status);
+      const data = await resp.json();
+      
+      indexState.textContent = "Rebuild completed";
+      appendConsoleEntry("system", "Index rebuild: " + data.output);
+    } catch (err) {
+      appendConsoleEntry("system", "Rebuild error: " + err.message);
+    }
   });
 
-  function updateFakeSystemMetrics() {
-    const cpu = (15 + Math.random() * 20).toFixed(1) + "%";
-    const mem = (42 + Math.random() * 15).toFixed(1) + "%";
-    const gpu = (5 + Math.random() * 10).toFixed(1) + "%";
-    const disk = (10 + Math.random() * 8).toFixed(1) + "%";
-    const net = (0.5 + Math.random() * 1.5).toFixed(2) + " MB/s";
+  // Cluster management
+  const clusterHealthBtn = document.getElementById("clusterHealthBtn");
 
-    document.getElementById("cpuUsage").textContent = cpu;
-    document.getElementById("memoryUsage").textContent = mem;
-    document.getElementById("gpuUsage").textContent = gpu;
-    document.getElementById("diskUsage").textContent = disk;
-    document.getElementById("netUsage").textContent = net;
+  clusterHealthBtn.addEventListener("click", () => checkClusterHealth());
+
+  async function checkClusterHealth() {
+    try {
+      appendConsoleEntry("system", "Checking cluster health...");
+      const resp = await fetch(BACKEND_URL + "/api/cluster/health");
+      if (!resp.ok) throw new Error("status " + resp.status);
+      const data = await resp.json();
+      
+      const nodeCount = Object.keys(data).length;
+      const onlineCount = Object.values(data).filter(n => n.status === "online").length;
+      
+      document.getElementById("nodeCount").textContent = nodeCount;
+      document.getElementById("onlineCount").textContent = onlineCount;
+      
+      // Display node details
+      const nodeDetails = document.getElementById("nodeDetails");
+      nodeDetails.innerHTML = "";
+      
+      Object.entries(data).forEach(([key, node]) => {
+        const div = document.createElement("div");
+        div.style.marginBottom = "4px";
+        div.style.color = node.status === "online" ? "var(--accent-green)" : "var(--danger)";
+        div.textContent = `${key}: ${node.status} ${node.uptime || ''}`;
+        nodeDetails.appendChild(div);
+      });
+      
+      appendConsoleEntry("system", `Cluster: ${onlineCount}/${nodeCount} nodes online`);
+    } catch (err) {
+      appendConsoleEntry("system", "Cluster health error: " + err.message);
+    }
   }
 
-  setInterval(updateFakeSystemMetrics, 4000);
-  updateFakeSystemMetrics();
+  // Feedback system
+  const feedbackBtn = document.getElementById("feedbackBtn");
+  const feedbackForm = document.getElementById("feedbackForm");
+  const feedbackRating = document.getElementById("feedbackRating");
+  const feedbackComment = document.getElementById("feedbackComment");
+  const submitFeedbackBtn = document.getElementById("submitFeedbackBtn");
+  const cancelFeedbackBtn = document.getElementById("cancelFeedbackBtn");
+
+  feedbackBtn.addEventListener("click", () => showFeedbackForm());
+
+  function showFeedbackForm() {
+    feedbackForm.classList.remove("hidden");
+    feedbackRating.focus();
+  }
+
+  cancelFeedbackBtn.addEventListener("click", () => {
+    feedbackForm.classList.add("hidden");
+    feedbackRating.value = "";
+    feedbackComment.value = "";
+  });
+
+  submitFeedbackBtn.addEventListener("click", async () => {
+    const rating = parseInt(feedbackRating.value);
+    const comment = feedbackComment.value.trim();
+    
+    if (!rating || rating < 1 || rating > 5) {
+      appendConsoleEntry("system", "Invalid rating. Please enter 1-5.");
+      return;
+    }
+    
+    if (!currentMessageId) {
+      appendConsoleEntry("system", "No message to provide feedback for. Send a message first.");
+      return;
+    }
+    
+    try {
+      const resp = await fetch(BACKEND_URL + "/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messageId: currentMessageId,
+          rating: rating,
+          comment: comment
+        })
+      });
+      
+      if (!resp.ok) throw new Error("status " + resp.status);
+      
+      appendConsoleEntry("system", `Feedback submitted: rating ${rating}${comment ? ' - ' + comment : ''}`);
+      feedbackForm.classList.add("hidden");
+      feedbackRating.value = "";
+      feedbackComment.value = "";
+      
+      // Update reinforcement scores
+      await fetchReinforcementScores();
+    } catch (err) {
+      appendConsoleEntry("system", "Feedback error: " + err.message);
+    }
+  });
+
+  // Reinforcement scores
+  async function fetchReinforcementScores() {
+    try {
+      const resp = await fetch(BACKEND_URL + "/api/reinforce/scores");
+      if (!resp.ok) throw new Error("status " + resp.status);
+      const data = await resp.json();
+      
+      const scoresDiv = document.getElementById("reinforceScores");
+      scoresDiv.innerHTML = "";
+      
+      Object.entries(data).forEach(([model, score]) => {
+        const div = document.createElement("div");
+        div.style.marginBottom = "2px";
+        div.textContent = `${model}: ${score.toFixed(2)}`;
+        scoresDiv.appendChild(div);
+      });
+      
+      if (Object.keys(data).length === 0) {
+        scoresDiv.textContent = "No scores yet.";
+      }
+    } catch (err) {
+      appendConsoleEntry("system", "Reinforcement scores error: " + err.message);
+    }
+  }
+
+  // Vision processing
+  const visionBtn = document.getElementById("visionBtn");
+  const visionUpload = document.getElementById("visionUpload");
+  const visionFile = document.getElementById("visionFile");
+  const visionPrompt = document.getElementById("visionPrompt");
+  const processVisionBtn = document.getElementById("processVisionBtn");
+
+  visionBtn.addEventListener("click", () => showVisionUpload());
+
+  function showVisionUpload() {
+    visionUpload.classList.remove("hidden");
+    visionFile.value = "";
+    visionPrompt.value = "";
+  }
+
+  processVisionBtn.addEventListener("click", async () => {
+    const file = visionFile.files[0];
+    const prompt = visionPrompt.value.trim();
+    
+    if (!file) {
+      appendConsoleEntry("system", "Please select an image file.");
+      return;
+    }
+    
+    if (!prompt) {
+      appendConsoleEntry("system", "Please enter a prompt for the image.");
+      return;
+    }
+    
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("prompt", prompt);
+    
+    try {
+      appendConsoleEntry("system", "Processing vision request...");
+      const resp = await fetch(BACKEND_URL + "/api/vision", {
+        method: "POST",
+        body: formData
+      });
+      
+      if (!resp.ok) throw new Error("status " + resp.status);
+      const data = await resp.json();
+      
+      appendConsoleEntry("overseer", "Vision analysis: " + data.reply);
+      visionUpload.classList.add("hidden");
+    } catch (err) {
+      appendConsoleEntry("system", "Vision error: " + err.message);
+    }
+  });
+
+  // Fine-tuning
+  const fineTuneBtn = document.getElementById("fineTuneBtn");
+
+  fineTuneBtn.addEventListener("click", () => submitFineTuneJob());
+
+  async function submitFineTuneJob() {
+    const modelId = prompt("Enter model ID to fine-tune:");
+    if (!modelId) return;
+    
+    const dataSource = prompt("Enter data source path:", "/media/angrydroid/training-data.json");
+    if (!dataSource) return;
+    
+    const epochs = parseInt(prompt("Enter number of epochs:", "3"));
+    if (!epochs || epochs < 1) return;
+    
+    const learningRate = parseFloat(prompt("Enter learning rate:", "0.0001"));
+    if (!learningRate || learningRate <= 0) return;
+    
+    try {
+      appendConsoleEntry("system", `Submitting fine-tune job for ${modelId}...`);
+      
+      const resp = await fetch(BACKEND_URL + "/api/fine-tune", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          modelId: modelId,
+          dataSource: dataSource,
+          epochs: epochs,
+          learningRate: learningRate
+        })
+      });
+      
+      if (!resp.ok) throw new Error("status " + resp.status);
+      const data = await resp.json();
+      
+      appendConsoleEntry("system", `Fine-tune job submitted: ${data.id} - ${data.status}`);
+      
+      // Monitor job status
+      monitorFineTuneJob(data.id);
+    } catch (err) {
+      appendConsoleEntry("system", "Fine-tune error: " + err.message);
+    }
+  }
+
+  async function monitorFineTuneJob(jobId) {
+    const interval = setInterval(async () => {
+      try {
+        const resp = await fetch(BACKEND_URL + `/api/fine-tune/status?jobId=${jobId}`);
+        if (!resp.ok) throw new Error("status " + resp.status);
+        const data = await resp.json();
+        
+        if (data.status === "completed" || data.status === "cancelled" || data.status === "failed") {
+          clearInterval(interval);
+          appendConsoleEntry("system", `Fine-tune job ${jobId}: ${data.status}${data.error ? ' - ' + data.error : ''}`);
+        } else {
+          appendConsoleEntry("system", `Fine-tune job ${jobId}: ${data.status} (${data.progress.toFixed(1)}%)`);
+        }
+      } catch (err) {
+        clearInterval(interval);
+        appendConsoleEntry("system", "Fine-tune monitoring error: " + err.message);
+      }
+    }, 5000);
+  }
+
+  // Search functionality
+  async function performSearch(query) {
+    try {
+      const resp = await fetch(BACKEND_URL + `/api/search?q=${encodeURIComponent(query)}`);
+      if (!resp.ok) throw new Error("status " + resp.status);
+      const data = await resp.json();
+      
+      appendConsoleEntry("system", `Search results for "${query}": ${JSON.stringify(data.results)}`);
+    } catch (err) {
+      appendConsoleEntry("system", "Search error: " + err.message);
+    }
+  }
+
+  // Initialize periodic updates
+  setInterval(() => {
+    listRunningModels();
+    fetchReinforcementScores();
+  }, 30000);
+
+  // Initial load
+  setTimeout(() => {
+    listRunningModels();
+    fetchReinforcementScores();
+    checkClusterHealth();
+  }, 1000);
+
+  appendConsoleEntry("system", "Type /help for available commands.");
 </script>
 </body>
 </html>
+ 
 
 
 // overseer-backend.js — Overseer Control Backend (ESM-safe)
+// Runs on port 3042 and connects to Ollama on 11434
+
+// overseer-backend.js — Overseer Control Backend (ESM-safe, dual-node cluster)
 // Runs on port 3042 and connects to Ollama on 11434
 
 import express from "express";
@@ -1517,6 +1982,25 @@ const app = express();
 const PORT = process.env.PORT || 3042;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
+// -------------------- Cluster Nodes --------------------
+// Dual-node cluster: Mythic-Machine (old PC) + Skybox (new PC)
+const CLUSTER_NODES = {
+  mythic: {
+    id: "mythic",
+    name: "Mythic-Machine",
+    host: process.env.MYTHIC_HOST || "192.168.10.1",
+    username: process.env.MYTHIC_USER || "angrydroid",
+    password: process.env.MYTHIC_PASS || "",
+  },
+  skybox: {
+    id: "skybox",
+    name: "Skybox",
+    host: process.env.SKYBOX_HOST || "192.168.10.2",
+    username: process.env.SKYBOX_USER || "angrydroid",
+    password: process.env.SKYBOX_PASS || "",
+  },
+};
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
@@ -1530,7 +2014,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 // SQLite DB
 const DB_PATH =
   process.env.DB_PATH ||
-  "/media/angrydroid/bea186ce-f386-42cf-be75-5338821ca311/database.db";
+  path.join(__dirname, "database.db");
 
 const db = new sqlite3.Database(`file:${DB_PATH}`, (err) => {
   if (err) console.error("❌ DB open error:", err);
@@ -1556,6 +2040,7 @@ db.serialize(() => {
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
+  // Updated: add nodeId column if not exists (best done via migration in real setup)
   db.run(`CREATE TABLE IF NOT EXISTS metrics (
     id TEXT PRIMARY KEY,
     agentId TEXT,
@@ -1564,6 +2049,7 @@ db.serialize(() => {
     tokens INTEGER,
     cost REAL,
     errors INTEGER,
+    nodeId TEXT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
@@ -1589,8 +2075,99 @@ db.serialize(() => {
 
 // -------------------- Health --------------------
 app.get("/api/health", (req, res) =>
-  res.json({ status: "ok", port: PORT })
+  res.json({ status: "ok", port: PORT, nodes: Object.keys(CLUSTER_NODES) })
 );
+
+// -------------------- Cluster: Node Listing --------------------
+app.get("/api/cluster/nodes", (req, res) => {
+  res.json(CLUSTER_NODES);
+});
+
+// -------------------- Cluster: SSH Exec by Node --------------------
+function sshExecOnNode(nodeKey, command) {
+  return new Promise((resolve, reject) => {
+    const target = CLUSTER_NODES[nodeKey];
+    if (!target) return reject(new Error("Node not found"));
+
+    const conn = new Client();
+
+    conn
+      .on("ready", () => {
+        conn.exec(command, (err, stream) => {
+          if (err) {
+            conn.end();
+            return reject(err);
+          }
+
+          let output = "";
+
+          stream
+            .on("data", (data) => (output += data.toString()))
+            .stderr.on("data", (data) => (output += data.toString()))
+            .on("close", () => {
+              conn.end();
+              resolve({ node: target.name, output: output.trim() });
+            });
+        });
+      })
+      .on("error", (err) => {
+        reject(err);
+      })
+      .connect({
+        host: target.host,
+        username: target.username,
+        password: target.password,
+      });
+  });
+}
+
+app.post("/api/cluster/exec", async (req, res) => {
+  const { node, command } = req.body;
+
+  if (!node || !command) {
+    return res
+      .status(400)
+      .json({ error: "node and command are required fields" });
+  }
+
+  if (!CLUSTER_NODES[node]) {
+    return res.status(404).json({ error: `Unknown node: ${node}` });
+  }
+
+  try {
+    const result = await sshExecOnNode(node, command);
+    res.json(result);
+  } catch (err) {
+    console.error("Cluster exec error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------- Cluster: Health Check --------------------
+app.get("/api/cluster/health", async (req, res) => {
+  const results = {};
+
+  const entries = Object.entries(CLUSTER_NODES);
+
+  await Promise.all(
+    entries.map(async ([key, node]) => {
+      try {
+        const result = await sshExecOnNode(key, "uptime");
+        results[key] = {
+          status: "online",
+          uptime: result.output,
+        };
+      } catch (err) {
+        results[key] = {
+          status: "offline",
+          error: err.message,
+        };
+      }
+    })
+  );
+
+  res.json(results);
+});
 
 // -------------------- Memory --------------------
 app.post("/api/memory", (req, res) => {
@@ -1776,7 +2353,6 @@ app.post("/api/chat", async (req, res) => {
     res.setHeader("Content-Type", "application/json");
 
     // node-fetch v3 streams are web streams, no .pipe() directly to res
-    // For now, assume non-streaming or buffer the response
     const text = await response.text();
     res.send(text);
   } catch (err) {
@@ -1838,7 +2414,8 @@ app.post("/api/vision", upload.single("file"), async (req, res) => {
   }
 });
 
-// -------------------- SSH --------------------
+// -------------------- SSH (direct, legacy) --------------------
+// Still available if you want to hit arbitrary hosts directly
 app.post("/api/ssh", (req, res) => {
   const { host, username, password, command } = req.body;
 
@@ -1859,7 +2436,7 @@ app.post("/api/ssh", (req, res) => {
           .stderr.on("data", (data) => (output += data.toString()))
           .on("close", () => {
             conn.end();
-            res.json({ output });
+            res.json({ output: output.trim() });
           });
       });
     })
@@ -1889,7 +2466,7 @@ app.get("/api/cleanup", (req, res) => {
       fs.stat(filePath, (err2, stats) => {
         if (err2) return;
 
-        const ageHours = (now - stats.mtimeMs) / (1000 * 60 * 60);
+      const ageHours = (now - stats.mtimeMs) / (1000 * 60 * 60);
 
         if (ageHours > 24) {
           fs.unlink(filePath, () => {});
@@ -1901,9 +2478,73 @@ app.get("/api/cleanup", (req, res) => {
   });
 });
 
+// -------------------- Overseer Error Bridge --------------------
+
+// In-memory error log for cockpit
+let overseerErrors = [];
+
+function logOverseerError(message) {
+  overseerErrors.push({
+    id: uuidv4(),
+    message,
+    timestamp: Date.now()
+  });
+
+  // Keep last 50 errors
+  if (overseerErrors.length > 50) {
+    overseerErrors.shift();
+  }
+}
+
+// Endpoint for cockpit to poll errors
+app.get("/api/overseer/errors", (req, res) => {
+  res.json(overseerErrors);
+});
+
+// -------------------- Alias Endpoints (Fix Cockpit 404s) --------------------
+
+// Alias for running models (cockpit expects /api/running-models)
+app.get("/api/running-models", async (req, res) => {
+  try {
+    const response = await fetch(`${OLLAMA_URL}/api/ps`);
+    const data = await response.json();
+    res.json(data.models || []);
+  } catch (err) {
+    const msg = `Running-models backend error: ${err.message}`;
+    console.error(msg);
+    logOverseerError(msg);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Alias for reinforcement scores (cockpit expects /api/reinforcement-scores)
+app.get("/api/reinforcement-scores", (req, res) => {
+  db.all(
+    "SELECT modelId, score FROM reinforcement_scores ORDER BY score DESC",
+    (err, rows) => {
+      if (err) {
+        const msg = `Reinforcement-scores backend error: ${err.message}`;
+        console.error(msg);
+        logOverseerError(msg);
+        return res.status(500).json({ error: err.message });
+      }
+
+      const scores = {};
+      rows.forEach((row) => (scores[row.modelId] = row.score));
+
+      res.json(scores);
+    }
+  );
+});
+
 // -------------------- Start Server --------------------
 app.listen(PORT, () => {
   console.log(`🚀 Overseer backend running on http://localhost:${PORT}`);
   console.log(`📜 Memory DB stored at: ${DB_PATH}`);
   console.log(`🤖 Connected to Ollama at: ${OLLAMA_URL}`);
+  console.log(
+    `🌐 Cluster nodes: ${Object.values(CLUSTER_NODES)
+      .map((n) => `${n.name}@${n.host}`)
+      .join(", ")}`
+  );
 });
