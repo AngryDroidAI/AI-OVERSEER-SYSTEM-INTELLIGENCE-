@@ -1,4 +1,4 @@
-// overseer-backend.js — Overseer Control Backend (ESM-safe)
+// overseer-backend.js — Overseer Control Backend (ESM-safe, dual-node cluster)
 // Runs on port 3042 and connects to Ollama on 11434
 
 import express from "express";
@@ -23,6 +23,25 @@ const app = express();
 const PORT = process.env.PORT || 3042;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
+// -------------------- Cluster Nodes --------------------
+// Dual-node cluster: Mythic-Machine (old PC) + Skybox (new PC)
+const CLUSTER_NODES = {
+  mythic: {
+    id: "mythic",
+    name: "Mythic-Machine",
+    host: process.env.MYTHIC_HOST || "192.168.10.1",
+    username: process.env.MYTHIC_USER || "angrydroid",
+    password: process.env.MYTHIC_PASS || "",
+  },
+  skybox: {
+    id: "skybox",
+    name: "Skybox",
+    host: process.env.SKYBOX_HOST || "192.168.10.2",
+    username: process.env.SKYBOX_USER || "angrydroid",
+    password: process.env.SKYBOX_PASS || "",
+  },
+};
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
@@ -36,7 +55,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 // SQLite DB
 const DB_PATH =
   process.env.DB_PATH ||
-  "/media/angrydroid/bea186ce-f386-42cf-be75-5338821ca311/database.db";
+  path.join(__dirname, "database.db");
 
 const db = new sqlite3.Database(`file:${DB_PATH}`, (err) => {
   if (err) console.error("❌ DB open error:", err);
@@ -62,6 +81,7 @@ db.serialize(() => {
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
+  // Updated: add nodeId column if not exists (best done via migration in real setup)
   db.run(`CREATE TABLE IF NOT EXISTS metrics (
     id TEXT PRIMARY KEY,
     agentId TEXT,
@@ -70,6 +90,7 @@ db.serialize(() => {
     tokens INTEGER,
     cost REAL,
     errors INTEGER,
+    nodeId TEXT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
@@ -95,8 +116,99 @@ db.serialize(() => {
 
 // -------------------- Health --------------------
 app.get("/api/health", (req, res) =>
-  res.json({ status: "ok", port: PORT })
+  res.json({ status: "ok", port: PORT, nodes: Object.keys(CLUSTER_NODES) })
 );
+
+// -------------------- Cluster: Node Listing --------------------
+app.get("/api/cluster/nodes", (req, res) => {
+  res.json(CLUSTER_NODES);
+});
+
+// -------------------- Cluster: SSH Exec by Node --------------------
+function sshExecOnNode(nodeKey, command) {
+  return new Promise((resolve, reject) => {
+    const target = CLUSTER_NODES[nodeKey];
+    if (!target) return reject(new Error("Node not found"));
+
+    const conn = new Client();
+
+    conn
+      .on("ready", () => {
+        conn.exec(command, (err, stream) => {
+          if (err) {
+            conn.end();
+            return reject(err);
+          }
+
+          let output = "";
+
+          stream
+            .on("data", (data) => (output += data.toString()))
+            .stderr.on("data", (data) => (output += data.toString()))
+            .on("close", () => {
+              conn.end();
+              resolve({ node: target.name, output: output.trim() });
+            });
+        });
+      })
+      .on("error", (err) => {
+        reject(err);
+      })
+      .connect({
+        host: target.host,
+        username: target.username,
+        password: target.password,
+      });
+  });
+}
+
+app.post("/api/cluster/exec", async (req, res) => {
+  const { node, command } = req.body;
+
+  if (!node || !command) {
+    return res
+      .status(400)
+      .json({ error: "node and command are required fields" });
+  }
+
+  if (!CLUSTER_NODES[node]) {
+    return res.status(404).json({ error: `Unknown node: ${node}` });
+  }
+
+  try {
+    const result = await sshExecOnNode(node, command);
+    res.json(result);
+  } catch (err) {
+    console.error("Cluster exec error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------- Cluster: Health Check --------------------
+app.get("/api/cluster/health", async (req, res) => {
+  const results = {};
+
+  const entries = Object.entries(CLUSTER_NODES);
+
+  await Promise.all(
+    entries.map(async ([key, node]) => {
+      try {
+        const result = await sshExecOnNode(key, "uptime");
+        results[key] = {
+          status: "online",
+          uptime: result.output,
+        };
+      } catch (err) {
+        results[key] = {
+          status: "offline",
+          error: err.message,
+        };
+      }
+    })
+  );
+
+  res.json(results);
+});
 
 // -------------------- Memory --------------------
 app.post("/api/memory", (req, res) => {
@@ -282,7 +394,6 @@ app.post("/api/chat", async (req, res) => {
     res.setHeader("Content-Type", "application/json");
 
     // node-fetch v3 streams are web streams, no .pipe() directly to res
-    // For now, assume non-streaming or buffer the response
     const text = await response.text();
     res.send(text);
   } catch (err) {
@@ -344,7 +455,8 @@ app.post("/api/vision", upload.single("file"), async (req, res) => {
   }
 });
 
-// -------------------- SSH --------------------
+// -------------------- SSH (direct, legacy) --------------------
+// Still available if you want to hit arbitrary hosts directly
 app.post("/api/ssh", (req, res) => {
   const { host, username, password, command } = req.body;
 
@@ -365,7 +477,7 @@ app.post("/api/ssh", (req, res) => {
           .stderr.on("data", (data) => (output += data.toString()))
           .on("close", () => {
             conn.end();
-            res.json({ output });
+            res.json({ output: output.trim() });
           });
       });
     })
@@ -395,7 +507,7 @@ app.get("/api/cleanup", (req, res) => {
       fs.stat(filePath, (err2, stats) => {
         if (err2) return;
 
-        const ageHours = (now - stats.mtimeMs) / (1000 * 60 * 60);
+      const ageHours = (now - stats.mtimeMs) / (1000 * 60 * 60);
 
         if (ageHours > 24) {
           fs.unlink(filePath, () => {});
@@ -407,10 +519,73 @@ app.get("/api/cleanup", (req, res) => {
   });
 });
 
+// -------------------- Overseer Error Bridge --------------------
+
+// In-memory error log for cockpit
+let overseerErrors = [];
+
+function logOverseerError(message) {
+  overseerErrors.push({
+    id: uuidv4(),
+    message,
+    timestamp: Date.now()
+  });
+
+  // Keep last 50 errors
+  if (overseerErrors.length > 50) {
+    overseerErrors.shift();
+  }
+}
+
+// Endpoint for cockpit to poll errors
+app.get("/api/overseer/errors", (req, res) => {
+  res.json(overseerErrors);
+});
+
+// -------------------- Alias Endpoints (Fix Cockpit 404s) --------------------
+
+// Alias for running models (cockpit expects /api/running-models)
+app.get("/api/running-models", async (req, res) => {
+  try {
+    const response = await fetch(`${OLLAMA_URL}/api/ps`);
+    const data = await response.json();
+    res.json(data.models || []);
+  } catch (err) {
+    const msg = `Running-models backend error: ${err.message}`;
+    console.error(msg);
+    logOverseerError(msg);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Alias for reinforcement scores (cockpit expects /api/reinforcement-scores)
+app.get("/api/reinforcement-scores", (req, res) => {
+  db.all(
+    "SELECT modelId, score FROM reinforcement_scores ORDER BY score DESC",
+    (err, rows) => {
+      if (err) {
+        const msg = `Reinforcement-scores backend error: ${err.message}`;
+        console.error(msg);
+        logOverseerError(msg);
+        return res.status(500).json({ error: err.message });
+      }
+
+      const scores = {};
+      rows.forEach((row) => (scores[row.modelId] = row.score));
+
+      res.json(scores);
+    }
+  );
+});
+
 // -------------------- Start Server --------------------
 app.listen(PORT, () => {
   console.log(`🚀 Overseer backend running on http://localhost:${PORT}`);
   console.log(`📜 Memory DB stored at: ${DB_PATH}`);
   console.log(`🤖 Connected to Ollama at: ${OLLAMA_URL}`);
+  console.log(
+    `🌐 Cluster nodes: ${Object.values(CLUSTER_NODES)
+      .map((n) => `${n.name}@${n.host}`)
+      .join(", ")}`
+  );
 });
-
